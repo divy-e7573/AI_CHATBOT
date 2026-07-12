@@ -1,3 +1,5 @@
+An AI-powered chatbot built using modern LLM technologies with Retrieval-Augmented Generation (RAG) for context-aware responses. Supports intelligent document retrieval, conversational memory, and natural language interactions to deliver accurate, knowledge-grounded answers.
+
 # AI Chatbot (MERN + RAG)
 
 MERN stack skeleton for an AI chatbot with RAG (Retrieval-Augmented Generation) support.
