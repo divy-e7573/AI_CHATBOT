@@ -98,3 +98,13 @@ export const retrieveRelevantChunks = async ({
     distance: dists[i],
   }));
 };
+
+/**
+ * Remove all Chroma vectors belonging to a conversation (used on delete).
+ */
+export const deleteConversationVectors = async (conversationId) => {
+  const collection = await getDocumentsCollection();
+  await collection.delete({
+    where: { conversationId: conversationId.toString() },
+  });
+};
