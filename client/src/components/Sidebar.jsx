@@ -2,10 +2,12 @@ import { useNavigate } from "react-router-dom";
 
 import { useChatStore } from "../store/chatStore";
 import { useAuthStore } from "../store/authStore";
+import { SidebarSkeleton } from "./Skeleton";
 
 export default function Sidebar({ onClose }) {
   const navigate = useNavigate();
 
+  const loadingConversations = useChatStore((s) => s.loadingConversations);
   const conversations = useChatStore((s) => s.conversations);
   const currentId = useChatStore((s) => s.currentConversationId);
   const selectConversation = useChatStore((s) => s.selectConversation);
@@ -41,7 +43,16 @@ export default function Sidebar({ onClose }) {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2">
-        {conversations.map((c) => (
+        {loadingConversations ? (
+          <SidebarSkeleton />
+        ) : conversations.length === 0 ? (
+          <div className="px-3 py-8 text-center text-sm text-gray-500">
+            No conversations yet.
+            <br />
+            Start a new chat to get going.
+          </div>
+        ) : null}
+        {!loadingConversations && conversations.map((c) => (
           <button
             key={c._id}
             onClick={() => handleSelect(c._id)}

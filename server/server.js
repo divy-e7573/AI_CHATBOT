@@ -39,13 +39,18 @@ app.use((req, res) => {
   res.status(404).json({ message: "Not found" });
 });
 
-// Centralized error handler
+// Centralized error handler. 4xx messages are ours and safe to show; for 5xx
+// (incl. upstream AI/DB failures) log the details but return a generic message
+// so provider error bodies never leak to clients.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error(err);
+  console.error(`[${req.method} ${req.originalUrl}]`, err);
   const status = err.status || 500;
   res.status(status).json({
-    message: err.message || "Internal server error",
+    message:
+      status < 500
+        ? err.message || "Request failed"
+        : "Something went wrong. Please try again.",
   });
 });
 

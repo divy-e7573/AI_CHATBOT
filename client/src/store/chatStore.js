@@ -1,73 +1,109 @@
 import { create } from "zustand";
 
-// --- Dummy data (placeholder until the API is wired up) ---
+import api from "../api/axios";
 
-const DUMMY_CONVERSATIONS = [
-  { _id: "c1", title: "Project kickoff notes", updatedAt: "2026-07-10T09:00:00Z" },
-  { _id: "c2", title: "RAG design questions", updatedAt: "2026-07-09T14:30:00Z" },
-  { _id: "c3", title: "Untitled conversation", updatedAt: "2026-07-08T18:15:00Z" },
-];
-
-const DUMMY_MESSAGES = {
-  c1: [
-    { _id: "m1", role: "user", content: "Summarize the PDF I uploaded." },
-    {
-      _id: "m2",
-      role: "assistant",
-      content:
-        "Here's a quick **summary** of the document:\n\n" +
-        "- Introduces the project goals\n" +
-        "- Lists the core milestones\n" +
-        "- Notes open questions for the team\n\n" +
-        "Let me know if you'd like more detail on any section.",
-    },
-  ],
-  c2: [
-    {
-      _id: "m3",
-      role: "user",
-      content: "What chunk size should I use for embeddings?",
-    },
-    {
-      _id: "m4",
-      role: "assistant",
-      content:
-        "A common starting point is **~500 tokens per chunk** with a small overlap " +
-        "(50–100 tokens) so context isn't lost at boundaries. Tune based on your docs.",
-    },
-  ],
-  c3: [],
-};
-
-// Simple incrementing id generator for placeholder messages/conversations.
-let idCounter = 1000;
+// Local id generator for optimistic messages created while streaming.
+let idCounter = 0;
 const nextId = () => `local-${++idCounter}`;
 
 export const useChatStore = create((set, get) => ({
-  conversations: DUMMY_CONVERSATIONS,
-  currentConversationId: "c1",
-  messages: DUMMY_MESSAGES.c1,
+  conversations: [],
+  currentConversationId: null,
+  messages: [],
+  loadingConversations: false,
+  loadingMessages: false,
+  listError: null, // sidebar-level error (load/create failures)
 
-  selectConversation: (id) =>
+  /** Load the user's conversations; auto-select the most recent one. */
+  fetchConversations: async () => {
+    set({ loadingConversations: true, listError: null });
+    try {
+      const { data } = await api.get("/conversations");
+      set({ conversations: data.conversations, loadingConversations: false });
+      if (!get().currentConversationId && data.conversations.length > 0) {
+        get().selectConversation(data.conversations[0]._id);
+      }
+    } catch {
+      set({
+        loadingConversations: false,
+        listError: "Couldn't load conversations.",
+      });
+    }
+  },
+
+  /** Switch to a conversation and load its messages. */
+  selectConversation: async (id) => {
+    set({ currentConversationId: id, messages: [], loadingMessages: true });
+    try {
+      const { data } = await api.get(`/conversations/${id}/messages`);
+      // Ignore the response if the user already switched elsewhere.
+      if (get().currentConversationId === id) {
+        set({ messages: data.messages, loadingMessages: false });
+      }
+    } catch {
+      if (get().currentConversationId === id) {
+        set({
+          messages: [
+            {
+              _id: nextId(),
+              role: "assistant",
+              error: true,
+              content: "⚠️ Couldn't load this conversation's messages.",
+            },
+          ],
+          loadingMessages: false,
+        });
+      }
+    }
+  },
+
+  /** Create a conversation on the server and select it. */
+  createConversation: async () => {
+    set({ listError: null });
+    try {
+      const { data } = await api.post("/conversations", {});
+      set((state) => ({
+        conversations: [data.conversation, ...state.conversations],
+        currentConversationId: data.conversation._id,
+        messages: [],
+        loadingMessages: false,
+      }));
+    } catch {
+      set({ listError: "Couldn't create a conversation." });
+    }
+  },
+
+  /** Delete a conversation (server cascades messages/documents/vectors). */
+  deleteConversation: async (id) => {
+    await api.delete(`/conversations/${id}`);
+    set((state) => {
+      const conversations = state.conversations.filter((c) => c._id !== id);
+      const wasCurrent = state.currentConversationId === id;
+      return {
+        conversations,
+        currentConversationId: wasCurrent
+          ? conversations[0]?._id ?? null
+          : state.currentConversationId,
+        messages: wasCurrent ? [] : state.messages,
+      };
+    });
+    // Load messages for the newly selected conversation, if any.
+    const nextCurrent = get().currentConversationId;
+    if (nextCurrent) get().selectConversation(nextCurrent);
+  },
+
+  /** Clear all chat state (on logout). */
+  reset: () =>
     set({
-      currentConversationId: id,
-      messages: DUMMY_MESSAGES[id] ?? [],
+      conversations: [],
+      currentConversationId: null,
+      messages: [],
+      loadingConversations: false,
+      loadingMessages: false,
+      listError: null,
     }),
 
-  createConversation: () => {
-    const id = nextId();
-    const conversation = {
-      _id: id,
-      title: "New conversation",
-      updatedAt: new Date().toISOString(),
-    };
-    DUMMY_MESSAGES[id] = [];
-    set((state) => ({
-      conversations: [conversation, ...state.conversations],
-      currentConversationId: id,
-      messages: [],
-    }));
-  },
+  // --- Optimistic message helpers used by the streaming UI ---
 
   // Append a message; returns the (generated) id so callers can update it later.
   addMessage: (message) => {

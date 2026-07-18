@@ -84,14 +84,10 @@ export const sendMessage = async (req, res, next) => {
     });
 
     let assistantText = "";
-    const stream = await streamChat({ message: content, preamble, chatHistory });
-
-    for await (const event of stream) {
+    for await (const text of streamChat({ message: content, preamble, chatHistory })) {
       if (clientClosed) break;
-      if (event.eventType === "text-generation") {
-        assistantText += event.text;
-        sse(res, { type: "token", text: event.text });
-      }
+      assistantText += text;
+      sse(res, { type: "token", text });
     }
 
     // --- Persist both messages after streaming completes ---
@@ -125,7 +121,8 @@ export const sendMessage = async (req, res, next) => {
   } catch (err) {
     // If streaming already started we can't set a status code — emit an SSE error.
     if (res.headersSent) {
-      sse(res, { type: "error", message: "Generation failed." });
+      console.error(`[POST /api/conversations/:id/messages] stream error:`, err);
+      sse(res, { type: "error", message: "Generation failed. Please try again." });
       return res.end();
     }
     return next(err);

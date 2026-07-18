@@ -18,11 +18,14 @@ export const embedDocuments = async (texts) => {
 
   for (let i = 0; i < texts.length; i += MAX_BATCH) {
     const batch = texts.slice(i, i + MAX_BATCH);
-    const res = await client.embed({
-      texts: batch,
-      model: EMBED_MODEL,
-      inputType: "search_document",
-    });
+    const res = await client.embed(
+      {
+        texts: batch,
+        model: EMBED_MODEL,
+        inputType: "search_document",
+      },
+      { timeoutInSeconds: 60, maxRetries: 1 }
+    );
     vectors.push(...unwrap(res.embeddings));
   }
 
@@ -35,10 +38,13 @@ export const embedDocuments = async (texts) => {
  */
 export const embedQuery = async (text) => {
   const client = getCohereClient();
-  const res = await client.embed({
-    texts: [text],
-    model: EMBED_MODEL,
-    inputType: "search_query",
-  });
+  const res = await client.embed(
+    {
+      texts: [text],
+      model: EMBED_MODEL,
+      inputType: "search_query",
+    },
+    { timeoutInSeconds: 30, maxRetries: 1 }
+  );
   return unwrap(res.embeddings)[0];
 };

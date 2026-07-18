@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 
+import api from "../api/axios";
 import { useChatStore } from "../store/chatStore";
 import { streamMessage } from "../api/chatStream";
 import MessageBubble from "./MessageBubble";
 import FileUploadButton from "./FileUploadButton";
+import { MessagesSkeleton } from "./Skeleton";
+
+// Abort generation if the first token hasn't arrived within this window.
+const FIRST_TOKEN_TIMEOUT_MS = 45_000;
 
 export default function ChatWindow({ onOpenSidebar }) {
   const messages = useChatStore((s) => s.messages);
+  const loadingMessages = useChatStore((s) => s.loadingMessages);
   const conversations = useChatStore((s) => s.conversations);
   const currentId = useChatStore((s) => s.currentConversationId);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -16,6 +22,7 @@ export default function ChatWindow({ onOpenSidebar }) {
   const current = conversations.find((c) => c._id === currentId);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [upload, setUpload] = useState(null); // { kind: "uploading"|"success"|"error", text }
 
   const endRef = useRef(null);
   const abortRef = useRef(null);
@@ -27,6 +34,37 @@ export default function ChatWindow({ onOpenSidebar }) {
 
   // Abort any in-flight stream if the component unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Auto-dismiss upload success banners.
+  useEffect(() => {
+    if (upload?.kind !== "success") return;
+    const t = setTimeout(() => setUpload(null), 4000);
+    return () => clearTimeout(t);
+  }, [upload]);
+
+  const handleFileSelected = async (file) => {
+    if (!currentId) return;
+    setUpload({ kind: "uploading", text: `Uploading ${file.name}…` });
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("conversationId", currentId);
+      const { data } = await api.post("/upload", form);
+      setUpload({
+        kind: "success",
+        text: `${data.filename} processed (${data.chunkCount} chunk${
+          data.chunkCount === 1 ? "" : "s"
+        }). You can ask about it now.`,
+      });
+    } catch (err) {
+      setUpload({
+        kind: "error",
+        text:
+          err.response?.data?.message ||
+          "Upload failed. Check your connection and try again.",
+      });
+    }
+  };
 
   const handleSend = async (e) => {
     e?.preventDefault();
@@ -47,16 +85,35 @@ export default function ChatWindow({ onOpenSidebar }) {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // Watchdog: abort if the AI never starts answering.
+    let timedOut = false;
+    let watchdog = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, FIRST_TOKEN_TIMEOUT_MS);
+
     try {
       await streamMessage({
         conversationId: currentId,
         content: text,
         signal: controller.signal,
-        onToken: (chunk) => appendToMessage(assistantId, chunk),
+        onToken: (chunk) => {
+          if (watchdog) {
+            clearTimeout(watchdog);
+            watchdog = null;
+          }
+          appendToMessage(assistantId, chunk);
+        },
         onDone: () => updateMessage(assistantId, { pending: false }),
       });
     } catch (err) {
-      if (err.name === "AbortError") {
+      if (err.name === "AbortError" && timedOut) {
+        updateMessage(assistantId, {
+          pending: false,
+          error: true,
+          content: "⚠️ The AI took too long to respond. Please try again.",
+        });
+      } else if (err.name === "AbortError") {
         // User navigated away / cancelled — just stop the indicator.
         updateMessage(assistantId, { pending: false });
       } else {
@@ -67,6 +124,7 @@ export default function ChatWindow({ onOpenSidebar }) {
         });
       }
     } finally {
+      if (watchdog) clearTimeout(watchdog);
       setIsStreaming(false);
       abortRef.current = null;
     }
@@ -96,9 +154,13 @@ export default function ChatWindow({ onOpenSidebar }) {
       </header>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {messages.length === 0 ? (
+        {loadingMessages ? (
+          <MessagesSkeleton />
+        ) : messages.length === 0 ? (
           <div className="mt-16 text-center text-sm text-gray-400">
-            No messages yet. Say hi 👋
+            <p className="mb-1 text-base">👋</p>
+            <p>No messages yet.</p>
+            <p>Ask a question, or attach a PDF/TXT to chat about it.</p>
           </div>
         ) : (
           messages.map((m) => <MessageBubble key={m._id} message={m} />)
@@ -106,16 +168,38 @@ export default function ChatWindow({ onOpenSidebar }) {
         <div ref={endRef} />
       </div>
 
+      {upload && (
+        <div
+          className={`mx-3 mb-2 flex items-center justify-between rounded-lg px-3 py-2 text-sm ${
+            upload.kind === "error"
+              ? "bg-red-50 text-red-700"
+              : upload.kind === "success"
+              ? "bg-green-50 text-green-700"
+              : "bg-blue-50 text-blue-700"
+          }`}
+          role="status"
+        >
+          <span className="truncate">{upload.text}</span>
+          <button
+            onClick={() => setUpload(null)}
+            className="ml-3 shrink-0 font-medium hover:underline"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <form
         onSubmit={handleSend}
         className="border-t border-gray-200 bg-white p-3"
       >
         <div className="flex items-end gap-2">
           <FileUploadButton
-            onSelect={(file) => {
-              // Upload wiring comes later.
-              console.log("Selected file:", file?.name);
-            }}
+            onSelect={handleFileSelected}
+            onError={(message) => setUpload({ kind: "error", text: message })}
+            disabled={upload?.kind === "uploading"}
+            busy={upload?.kind === "uploading"}
           />
           <textarea
             value={input}

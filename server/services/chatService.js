@@ -1,20 +1,20 @@
 import { getCohereClient } from "../config/cohere.js";
 
-const CHAT_MODEL = "command-r-plus";
-
-// Map our stored roles to Cohere chat roles.
-const ROLE_MAP = { user: "USER", assistant: "CHATBOT" };
+// command-r-plus was removed by Cohere on 2025-09-15; use the current flagship.
+// Note: current models require the v2 chat API (client.v2.chatStream).
+const CHAT_MODEL = "command-a-plus-05-2026";
 
 /**
- * Convert stored Message docs (chronological order) into Cohere chatHistory.
+ * Convert stored Message docs (chronological order) into v2 chat messages.
+ * Our roles ("user"/"assistant") match the v2 API's roles directly.
  */
 export const toCohereChatHistory = (messages = []) =>
   messages
-    .filter((m) => ROLE_MAP[m.role])
-    .map((m) => ({ role: ROLE_MAP[m.role], message: m.content }));
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => ({ role: m.role, content: m.content }));
 
 /**
- * Build the system preamble: base instructions + retrieved RAG context.
+ * Build the system message: base instructions + retrieved RAG context.
  * @param {Array<{ text: string }>} chunks
  */
 export const buildPreamble = (chunks = []) => {
@@ -31,15 +31,29 @@ export const buildPreamble = (chunks = []) => {
 };
 
 /**
- * Start a streaming Cohere chat. Returns an async-iterable stream of events;
- * text deltas arrive as events with eventType === "text-generation".
+ * Start a streaming Cohere v2 chat. Yields plain text deltas so callers don't
+ * depend on Cohere's event shapes.
  */
-export const streamChat = async ({ message, preamble, chatHistory }) => {
+export async function* streamChat({ message, preamble, chatHistory = [] }) {
   const cohere = getCohereClient();
-  return cohere.chatStream({
-    model: CHAT_MODEL,
-    message,
-    preamble,
-    chatHistory,
-  });
-};
+
+  const stream = await cohere.v2.chatStream(
+    {
+      model: CHAT_MODEL,
+      messages: [
+        { role: "system", content: preamble },
+        ...chatHistory,
+        { role: "user", content: message },
+      ],
+    },
+    // Fail fast instead of hanging if the AI API stalls.
+    { timeoutInSeconds: 90, maxRetries: 1 }
+  );
+
+  for await (const event of stream) {
+    if (event.type === "content-delta") {
+      const text = event.delta?.message?.content?.text;
+      if (text) yield text;
+    }
+  }
+}
