@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 
+import api from "../api/axios";
 import { useChatStore } from "../store/chatStore";
 import { useAuthStore } from "../store/authStore";
 import { SidebarSkeleton } from "./Skeleton";
@@ -10,14 +11,17 @@ export default function Sidebar({ onClose }) {
   const loadingConversations = useChatStore((s) => s.loadingConversations);
   const conversations = useChatStore((s) => s.conversations);
   const currentId = useChatStore((s) => s.currentConversationId);
+  const listError = useChatStore((s) => s.listError);
   const selectConversation = useChatStore((s) => s.selectConversation);
   const createConversation = useChatStore((s) => s.createConversation);
+  const deleteConversation = useChatStore((s) => s.deleteConversation);
+  const resetChat = useChatStore((s) => s.reset);
 
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
   const handleSelect = (id) => {
-    selectConversation(id);
+    if (id !== currentId) selectConversation(id);
     onClose?.();
   };
 
@@ -26,7 +30,23 @@ export default function Sidebar({ onClose }) {
     onClose?.();
   };
 
+  const handleDelete = async (e, c) => {
+    e.stopPropagation(); // don't also select the row
+    const ok = window.confirm(
+      `Delete "${c.title}"? Its messages and uploaded documents will be removed.`
+    );
+    if (!ok) return;
+    try {
+      await deleteConversation(c._id);
+    } catch {
+      window.alert("Couldn't delete the conversation. Please try again.");
+    }
+  };
+
   const handleLogout = () => {
+    // Clear the httpOnly cookie server-side; ignore failures (we're leaving anyway).
+    api.post("/auth/logout").catch(() => {});
+    resetChat();
     logout();
     navigate("/login");
   };
@@ -42,6 +62,12 @@ export default function Sidebar({ onClose }) {
         </button>
       </div>
 
+      {listError && (
+        <div className="mx-2 mb-2 rounded-lg bg-red-900/40 px-3 py-2 text-xs text-red-300">
+          {listError}
+        </div>
+      )}
+
       <nav className="flex-1 space-y-1 overflow-y-auto px-2">
         {loadingConversations ? (
           <SidebarSkeleton />
@@ -51,20 +77,29 @@ export default function Sidebar({ onClose }) {
             <br />
             Start a new chat to get going.
           </div>
-        ) : null}
-        {!loadingConversations && conversations.map((c) => (
-          <button
-            key={c._id}
-            onClick={() => handleSelect(c._id)}
-            className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
-              c._id === currentId
-                ? "bg-gray-700 text-white"
-                : "text-gray-300 hover:bg-gray-800"
-            }`}
-          >
-            {c.title}
-          </button>
-        ))}
+        ) : (
+          conversations.map((c) => (
+            <div
+              key={c._id}
+              onClick={() => handleSelect(c._id)}
+              className={`group flex w-full cursor-pointer items-center rounded-lg px-3 py-2 text-sm ${
+                c._id === currentId
+                  ? "bg-gray-700 text-white"
+                  : "text-gray-300 hover:bg-gray-800"
+              }`}
+            >
+              <span className="min-w-0 flex-1 truncate">{c.title}</span>
+              <button
+                onClick={(e) => handleDelete(e, c)}
+                title="Delete conversation"
+                aria-label={`Delete ${c.title}`}
+                className="ml-2 hidden shrink-0 text-gray-500 hover:text-red-400 group-hover:block"
+              >
+                🗑
+              </button>
+            </div>
+          ))
+        )}
       </nav>
 
       <div className="border-t border-gray-700 p-3">

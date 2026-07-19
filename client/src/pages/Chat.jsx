@@ -1,10 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
+import { useChatStore } from "../store/chatStore";
 
 export default function Chat() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const fetchConversations = useChatStore((s) => s.fetchConversations);
+
+  // Load the user's real conversations when the chat page mounts.
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100">

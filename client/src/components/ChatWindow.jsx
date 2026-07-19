@@ -154,7 +154,13 @@ export default function ChatWindow({ onOpenSidebar }) {
       </header>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {loadingMessages ? (
+        {!currentId ? (
+          <div className="mt-16 text-center text-sm text-gray-400">
+            <p className="mb-1 text-base">💬</p>
+            <p>No conversation selected.</p>
+            <p>Click “+ New chat” in the sidebar to start one.</p>
+          </div>
+        ) : loadingMessages ? (
           <MessagesSkeleton />
         ) : messages.length === 0 ? (
           <div className="mt-16 text-center text-sm text-gray-400">
@@ -198,7 +204,7 @@ export default function ChatWindow({ onOpenSidebar }) {
           <FileUploadButton
             onSelect={handleFileSelected}
             onError={(message) => setUpload({ kind: "error", text: message })}
-            disabled={upload?.kind === "uploading"}
+            disabled={!currentId || upload?.kind === "uploading"}
             busy={upload?.kind === "uploading"}
           />
           <textarea
@@ -206,12 +212,13 @@ export default function ChatWindow({ onOpenSidebar }) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder="Type a message…"
-            className="max-h-40 flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            disabled={!currentId}
+            placeholder={currentId ? "Type a message…" : "Start a new chat first"}
+            className="max-h-40 flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
           />
           <button
             type="submit"
-            disabled={isStreaming || !input.trim()}
+            disabled={!currentId || isStreaming || !input.trim()}
             className="h-10 shrink-0 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isStreaming ? "…" : "Send"}
