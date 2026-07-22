@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "chroma": "chroma run --path ./chroma-data --host localhost --port 8000"
   },
   "keywords": [
     "mern",

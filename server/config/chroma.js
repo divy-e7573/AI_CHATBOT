@@ -23,3 +23,14 @@ export const getDocumentsCollection = async () => {
   const chroma = getChromaClient();
   return chroma.getOrCreateCollection({ name: DOCUMENTS_COLLECTION });
 };
+
+/** True when Chroma is reachable (used to skip RAG instead of failing chat). */
+export const isChromaAvailable = async () => {
+  try {
+    const chroma = getChromaClient();
+    await chroma.heartbeat();
+    return true;
+  } catch {
+    return false;
+  }
+};

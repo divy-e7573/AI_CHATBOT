@@ -84,10 +84,26 @@ export const sendMessage = async (req, res, next) => {
     });
 
     let assistantText = "";
-    for await (const text of streamChat({ message: content, preamble, chatHistory })) {
-      if (clientClosed) break;
-      assistantText += text;
-      sse(res, { type: "token", text });
+    try {
+      for await (const text of streamChat({ message: content, preamble, chatHistory })) {
+        if (clientClosed) break;
+        assistantText += text;
+        sse(res, { type: "token", text });
+      }
+    } catch (streamErr) {
+      // Cohere may reject the request if it detects non-text content
+      // (e.g. "does not support image input").  Surface a clear message
+      // instead of a cryptic upstream error.
+      const msg = streamErr?.message || "";
+      if (/image/i.test(msg) && /support/i.test(msg)) {
+        sse(res, {
+          type: "error",
+          message:
+            "This model does not support image input. Please send only text messages.",
+        });
+        return res.end();
+      }
+      throw streamErr; // re-throw for the outer catch
     }
 
     // --- Persist both messages after streaming completes ---
@@ -122,7 +138,16 @@ export const sendMessage = async (req, res, next) => {
     // If streaming already started we can't set a status code — emit an SSE error.
     if (res.headersSent) {
       console.error(`[POST /api/conversations/:id/messages] stream error:`, err);
-      sse(res, { type: "error", message: "Generation failed. Please try again." });
+      const msg = err?.message || "";
+      if (/image/i.test(msg) && /support/i.test(msg)) {
+        sse(res, {
+          type: "error",
+          message:
+            "This model does not support image input. Please send only text messages.",
+        });
+      } else {
+        sse(res, { type: "error", message: "Generation failed. Please try again." });
+      }
       return res.end();
     }
     return next(err);

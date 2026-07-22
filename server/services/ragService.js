@@ -1,5 +1,5 @@
 import Document from "../models/Document.js";
-import { getDocumentsCollection } from "../config/chroma.js";
+import { getDocumentsCollection, isChromaAvailable } from "../config/chroma.js";
 import { extractText } from "./textExtractor.js";
 import { chunkText } from "./chunker.js";
 import { embedDocuments, embedQuery } from "./embeddingService.js";
@@ -79,6 +79,14 @@ export const retrieveRelevantChunks = async ({
   conversationId,
   topK = 5,
 }) => {
+  if (!(await isChromaAvailable())) {
+    console.warn(
+      "[RAG] ChromaDB is not running — chat will continue without document context. " +
+        "Start it with: npm run chroma (from the server folder)."
+    );
+    return [];
+  }
+
   const queryEmbedding = await embedQuery(query);
   const collection = await getDocumentsCollection();
 

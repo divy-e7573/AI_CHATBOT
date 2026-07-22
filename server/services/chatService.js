@@ -7,11 +7,27 @@ const CHAT_MODEL = "command-a-plus-05-2026";
 /**
  * Convert stored Message docs (chronological order) into v2 chat messages.
  * Our roles ("user"/"assistant") match the v2 API's roles directly.
+ *
+ * The Cohere v2 API requires `content` to be a plain string for text-only
+ * models.  Force-stringify every value so arrays or objects never slip
+ * through (which would trigger "does not support image input" errors).
  */
+const safeContent = (val) => {
+  if (typeof val === "string") return val;
+  if (Array.isArray(val)) {
+    // Extract only text parts from content-block arrays
+    return val
+      .filter((b) => b && b.type === "text" && typeof b.text === "string")
+      .map((b) => b.text)
+      .join("\n");
+  }
+  return String(val ?? "");
+};
+
 export const toCohereChatHistory = (messages = []) =>
   messages
     .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((m) => ({ role: m.role, content: safeContent(m.content) }));
 
 /**
  * Build the system message: base instructions + retrieved RAG context.
@@ -41,9 +57,9 @@ export async function* streamChat({ message, preamble, chatHistory = [] }) {
     {
       model: CHAT_MODEL,
       messages: [
-        { role: "system", content: preamble },
+        { role: "system", content: safeContent(preamble) },
         ...chatHistory,
-        { role: "user", content: message },
+        { role: "user", content: safeContent(message) },
       ],
     },
     // Fail fast instead of hanging if the AI API stalls.

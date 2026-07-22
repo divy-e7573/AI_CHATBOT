@@ -59,8 +59,22 @@ const PORT = process.env.PORT || 5000;
 // Connect to MongoDB, then start the server
 connectDB()
   .then(() => {
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
+    });
+
+    server.on("error", (err) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(
+          `Port ${PORT} is already in use. Stop the other process or set PORT in .env.`
+        );
+        console.error(
+          `On Windows: netstat -ano | findstr :${PORT}  then  taskkill /PID <pid> /F`
+        );
+      } else {
+        console.error("Server failed to start:", err.message);
+      }
+      process.exit(1);
     });
   })
   .catch((err) => {

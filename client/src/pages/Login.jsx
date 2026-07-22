@@ -1,14 +1,27 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import api from "../api/axios";
 import { useAuthStore } from "../store/authStore";
+import AuthLayout, {
+  AuthDivider,
+  AuthErrorBanner,
+  AuthFooterLink,
+  AuthGoogleButton,
+  AuthPrimaryButton,
+} from "../components/auth/AuthLayout";
+import {
+  EmailField,
+  PasswordField,
+  RememberForgotRow,
+} from "../components/auth/AuthFields";
 
 export default function Login() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
 
   const [form, setForm] = useState({ email: "", password: "" });
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -31,61 +44,35 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-2xl font-semibold text-gray-800">Log in</h1>
+    <AuthLayout
+      title="Welcome Back"
+      subtitle="Sign in to access your unified inbox"
+      footer={
+        <AuthFooterLink
+          prompt="Don't have an account?"
+          linkText="Sign up"
+          to="/signup"
+        />
+      }
+    >
+      <AuthErrorBanner message={error} />
 
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <EmailField value={form.email} onChange={update} />
+        <PasswordField value={form.password} onChange={update} />
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Email
-            </label>
-            <input
-              type="email"
-              name="email"
-              value={form.email}
-              onChange={update}
-              required
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-          </div>
+        <RememberForgotRow
+          remember={remember}
+          onRememberChange={setRemember}
+        />
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Password
-            </label>
-            <input
-              type="password"
-              name="password"
-              value={form.password}
-              onChange={update}
-              required
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-          </div>
+        <AuthPrimaryButton loading={loading}>
+          {loading ? "Signing in…" : "Sign In"}
+        </AuthPrimaryButton>
+      </form>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            {loading ? "Logging in…" : "Log in"}
-          </button>
-        </form>
-
-        <p className="mt-6 text-center text-sm text-gray-600">
-          Don&apos;t have an account?{" "}
-          <Link to="/signup" className="font-medium text-blue-600 hover:underline">
-            Sign up
-          </Link>
-        </p>
-      </div>
-    </div>
+      <AuthDivider />
+      <AuthGoogleButton />
+    </AuthLayout>
   );
 }
