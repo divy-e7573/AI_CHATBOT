@@ -9,8 +9,23 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-const ALLOWED_MIMETYPES = new Set(["application/pdf", "text/plain"]);
-const ALLOWED_EXTENSIONS = new Set([".pdf", ".txt"]);
+const ALLOWED_MIMETYPES = new Set([
+  "application/pdf",
+  "text/plain",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/bmp",
+]);
+const ALLOWED_EXTENSIONS = new Set([
+  ".pdf",
+  ".txt",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".bmp",
+]);
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
@@ -28,7 +43,7 @@ const fileFilter = (req, file, cb) => {
   if (ALLOWED_MIMETYPES.has(file.mimetype) || ALLOWED_EXTENSIONS.has(ext)) {
     return cb(null, true);
   }
-  cb(new Error("Only PDF and TXT files are allowed."));
+  cb(new Error("Supported files: PDF, TXT, PNG, JPG, WebP, and BMP."));
 };
 
 const upload = multer({

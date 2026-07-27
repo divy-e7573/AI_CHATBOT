@@ -30,6 +30,13 @@ const documentSchema = new mongoose.Schema(
       type: [chunkSchema],
       default: [],
     },
+    // Uploads remain usable through MongoDB lexical retrieval when the
+    // optional Chroma service is offline. This flag records whether vectors
+    // were also written successfully.
+    vectorIndexed: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     // Adds createdAt and updatedAt automatically.

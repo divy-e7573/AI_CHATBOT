@@ -83,9 +83,13 @@ export const deleteConversation = async (req, res, next) => {
       return res.status(404).json({ message: "Conversation not found." });
     }
 
-    // Remove vectors first so a failure here doesn't leave orphaned Mongo data
-    // pointing at chunks that are already gone.
-    await deleteConversationVectors(conversationId);
+    // Chroma is optional; cleanup there should not prevent deletion of the
+    // conversation's source-of-truth MongoDB records.
+    try {
+      await deleteConversationVectors(conversationId);
+    } catch (err) {
+      console.warn("[RAG] Could not delete conversation vectors:", err.message);
+    }
 
     await Promise.all([
       Message.deleteMany({ conversationId }),

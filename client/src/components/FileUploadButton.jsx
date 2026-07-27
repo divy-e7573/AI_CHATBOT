@@ -1,10 +1,19 @@
 import { useRef } from "react";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB — matches the server's multer limit
-const ALLOWED_EXTENSIONS = [".pdf", ".txt"];
+const ALLOWED_EXTENSIONS = [
+  ".pdf",
+  ".txt",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".bmp",
+];
+const ACCEPTED_FILES = ALLOWED_EXTENSIONS.join(",");
 
 /**
- * Attach button for PDF/TXT files.
+ * Attach button for documents and images.
  * Validates type + size client-side before handing the file up.
  *
  * @param {(file: File) => void} onSelect called with a valid file
@@ -23,7 +32,7 @@ export default function FileUploadButton({ onSelect, onError, disabled, busy }) 
 
     const ext = "." + (file.name.split(".").pop() || "").toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      onError?.("Only PDF and TXT files are supported.");
+      onError?.("Supported files: PDF, TXT, PNG, JPG, WebP, and BMP.");
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
@@ -39,7 +48,7 @@ export default function FileUploadButton({ onSelect, onError, disabled, busy }) 
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={disabled}
-        title="Attach a PDF or TXT file (max 10 MB)"
+        title="Attach a document or image (max 10 MB)"
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="Attach file"
       >
@@ -52,7 +61,7 @@ export default function FileUploadButton({ onSelect, onError, disabled, busy }) 
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.txt"
+        accept={ACCEPTED_FILES}
         onChange={handleChange}
         className="hidden"
       />

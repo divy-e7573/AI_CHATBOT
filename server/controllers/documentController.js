@@ -35,7 +35,7 @@ export const uploadDocument = async (req, res, next) => {
       return res.status(404).json({ message: "Conversation not found." });
     }
 
-    const { documentId, chunkCount } = await ingestDocument({
+    const { documentId, chunkCount, vectorIndexed } = await ingestDocument({
       filePath: req.file.path,
       filename: req.file.originalname,
       mimetype: req.file.mimetype,
@@ -47,13 +47,16 @@ export const uploadDocument = async (req, res, next) => {
       status: "processed",
       documentId,
       chunkCount,
+      vectorIndexed,
       filename: req.file.originalname,
     });
   } catch (err) {
-    // Clean up the saved upload if ingestion failed partway through.
+    return next(err);
+  } finally {
+    // The extracted chunks are persisted in MongoDB; the temporary original
+    // file is no longer needed after either success or failure.
     if (filePath) {
       await fs.unlink(filePath).catch(() => {});
     }
-    return next(err);
   }
 };

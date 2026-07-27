@@ -20,9 +20,44 @@ function friendlyError(code) {
     case "audio-capture":
       return "No microphone found. Connect a mic and try again.";
     case "network":
-      return "Speech recognition needs a network connection in this browser.";
+      return "The browser speech service could not be reached. Check your internet/VPN, or use a current Chrome version for on-device voice input.";
     default:
       return "Voice input failed. Please try again.";
+  }
+}
+
+/**
+ * Prefer the newer on-device Web Speech API when it is available. Older
+ * browsers simply return false and continue with their hosted speech service.
+ */
+async function prepareOnDeviceRecognition(SpeechRecognition, lang) {
+  if (
+    typeof SpeechRecognition.available !== "function" ||
+    typeof SpeechRecognition.install !== "function"
+  ) {
+    return false;
+  }
+
+  try {
+    let availability = await SpeechRecognition.available({
+      langs: [lang],
+      processLocally: true,
+    });
+
+    if (availability === "downloadable") {
+      const installed = await SpeechRecognition.install({ langs: [lang] });
+      if (!installed) return false;
+      availability = await SpeechRecognition.available({
+        langs: [lang],
+        processLocally: true,
+      });
+    }
+
+    return availability === "available";
+  } catch {
+    // This experimental API differs across browser releases. Falling back to
+    // regular Web Speech is safer than disabling voice input entirely.
+    return false;
   }
 }
 
@@ -54,6 +89,7 @@ export function useSpeechToText({
   const baseTextRef = useRef("");
   const accumulatedRef = useRef("");
   const isListeningRef = useRef(false);
+  const isStartingRef = useRef(false);
 
   const onTranscriptUpdateRef = useRef(onTranscriptUpdate);
   const onCompleteRef = useRef(onComplete);
@@ -119,9 +155,10 @@ export function useSpeechToText({
   }, [clearSilenceTimer, silenceMs, stop]);
 
   const start = useCallback(
-    (baseText = "") => {
+    async (baseText = "") => {
       const SpeechRecognition = getSpeechRecognitionCtor();
-      if (!SpeechRecognition) return;
+      if (!SpeechRecognition || isStartingRef.current) return;
+      isStartingRef.current = true;
 
       // Stop any prior session before starting a new one.
       if (recognitionRef.current) {
@@ -138,10 +175,18 @@ export function useSpeechToText({
       setError(null);
 
       try {
+        const useOnDevice = await prepareOnDeviceRecognition(
+          SpeechRecognition,
+          lang
+        );
         const recognition = new SpeechRecognition();
         recognition.continuous = continuous;
         recognition.interimResults = true;
         recognition.lang = lang;
+        recognition.maxAlternatives = 1;
+        if (useOnDevice && "processLocally" in recognition) {
+          recognition.processLocally = true;
+        }
 
         recognition.onresult = (event) => {
           let interim = "";
@@ -190,6 +235,8 @@ export function useSpeechToText({
         onErrorRef.current?.(message);
         isListeningRef.current = false;
         setIsListening(false);
+      } finally {
+        isStartingRef.current = false;
       }
     },
     [
@@ -204,13 +251,13 @@ export function useSpeechToText({
 
   const toggle = useCallback(
     (baseText = "") => {
-      if (isListening) {
+      if (isListeningRef.current) {
         stop();
       } else {
         start(baseText);
       }
     },
-    [isListening, start, stop]
+    [start, stop]
   );
 
   const clearError = useCallback(() => setError(null), []);

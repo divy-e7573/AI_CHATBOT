@@ -1,4 +1,4 @@
-An AI-powered chatbot built using modern LLM technologies with Retrieval-Augmented Generation (RAG) for context-aware responses. Supports intelligent document retrieval, conversational memory, and natural language interactions to deliver accurate, knowledge-grounded answers.
+An AI-powered chatbot built using modern LLM technologies with Retrieval-Augmented Generation (RAG) for context-aware responses. Supports intelligent document and OCR image retrieval, conversational memory, and natural language interactions to deliver accurate, knowledge-grounded answers.
 
 # AI Chatbot (MERN + RAG)
 
@@ -50,4 +50,5 @@ See [.env.example](.env.example):
 | `PORT`       | Port the Express server listens on           |
 | `MONGO_URI`  | MongoDB connection string                    |
 | `JWT_SECRET` | Secret for signing JWT auth tokens           |
-| `AI_API_KEY` | API key for the AI / embeddings provider     |
+| `COHERE_API_KEY` | Cohere key for chat and optional vector embeddings |
+| `CHROMA_URL` | Optional Chroma URL (MongoDB fallback is automatic) |

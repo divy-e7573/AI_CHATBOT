@@ -36,9 +36,8 @@ export const ingestDocument = async ({
     throw badRequest("File produced no text chunks.");
   }
 
-  const embeddings = await embedDocuments(chunks);
-
-  // Persist the Document record (links file to user + conversation).
+  // MongoDB is the durable source of truth. Vector indexing is an optional
+  // enhancement, so an unavailable Chroma server must not make uploads fail.
   const doc = await Document.create({
     userId,
     conversationId,
@@ -50,22 +49,86 @@ export const ingestDocument = async ({
   });
 
   const documentId = doc._id.toString();
+  let vectorIndexed = false;
 
-  // Store vectors in the shared Chroma collection, tagged for filtering.
-  const collection = await getDocumentsCollection();
-  await collection.add({
-    ids: chunks.map((_, i) => `${documentId}-${i}`),
-    embeddings,
-    documents: chunks,
-    metadatas: chunks.map((_, i) => ({
-      documentId,
-      conversationId: conversationId.toString(),
-      userId: userId.toString(),
-      chunkIndex: i,
-    })),
-  });
+  try {
+    if (await isChromaAvailable()) {
+      const embeddings = await embedDocuments(chunks);
+      const collection = await getDocumentsCollection();
+      await collection.add({
+        ids: chunks.map((_, i) => `${documentId}-${i}`),
+        embeddings,
+        documents: chunks,
+        metadatas: chunks.map((_, i) => ({
+          documentId,
+          conversationId: conversationId.toString(),
+          userId: userId.toString(),
+          chunkIndex: i,
+        })),
+      });
+      await Document.updateOne({ _id: doc._id }, { $set: { vectorIndexed: true } });
+      vectorIndexed = true;
+    } else {
+      console.warn(
+        `[RAG] Saved ${filename} without vectors because ChromaDB is unavailable.`
+      );
+    }
+  } catch (err) {
+    // Keep the successfully extracted Mongo document. Retrieval below falls
+    // back to lexical matching when vector services are unavailable.
+    console.warn(`[RAG] Vector indexing failed for ${filename}:`, err.message);
+  }
 
-  return { documentId, chunkCount: chunks.length };
+  return { documentId, chunkCount: chunks.length, vectorIndexed };
+};
+
+const queryTerms = (query) => [
+  ...new Set(
+    (query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
+      (term) => term.length > 1
+    )
+  ),
+];
+
+/**
+ * Dependency-free fallback used when Chroma or the embedding provider is
+ * unavailable. It also makes newly uploaded documents useful immediately.
+ */
+const retrieveLexically = async ({ query, conversationId, topK }) => {
+  const documents = await Document.find({ conversationId })
+    .select("filename chunks")
+    .lean();
+  const terms = queryTerms(query);
+  const normalizedQuery = query.trim().toLowerCase();
+  const candidates = [];
+
+  for (const document of documents) {
+    for (const chunk of document.chunks ?? []) {
+      const haystack = chunk.text.toLowerCase();
+      let score = normalizedQuery && haystack.includes(normalizedQuery) ? 10 : 0;
+      for (const term of terms) {
+        const matches = haystack.split(term).length - 1;
+        score += Math.min(matches, 5);
+      }
+      candidates.push({
+        text: chunk.text,
+        metadata: {
+          documentId: document._id.toString(),
+          filename: document.filename,
+          chunkIndex: chunk.chunkIndex,
+          retrieval: "lexical",
+        },
+        score,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.slice(0, topK).map(({ score, ...candidate }) => ({
+    ...candidate,
+    // Preserve the response shape used by vector retrieval (lower is better).
+    distance: score > 0 ? 1 / (score + 1) : 1,
+  }));
 };
 
 /**
@@ -79,40 +142,54 @@ export const retrieveRelevantChunks = async ({
   conversationId,
   topK = 5,
 }) => {
-  if (!(await isChromaAvailable())) {
-    console.warn(
-      "[RAG] ChromaDB is not running — chat will continue without document context. " +
-        "Start it with: npm run chroma (from the server folder)."
-    );
-    return [];
+  // If even one document was saved while vector services were offline, use a
+  // single retrieval strategy so those chunks cannot be hidden by results
+  // from older, vector-indexed documents.
+  const needsLexicalFallback = await Document.exists({
+    conversationId,
+    vectorIndexed: { $ne: true },
+  });
+  if (needsLexicalFallback) {
+    return retrieveLexically({ query, conversationId, topK });
   }
 
-  const queryEmbedding = await embedQuery(query);
-  const collection = await getDocumentsCollection();
+  try {
+    if (await isChromaAvailable()) {
+      const queryEmbedding = await embedQuery(query);
+      const collection = await getDocumentsCollection();
 
-  const results = await collection.query({
-    queryEmbeddings: [queryEmbedding],
-    nResults: topK,
-    where: { conversationId: conversationId.toString() },
-  });
+      const results = await collection.query({
+        queryEmbeddings: [queryEmbedding],
+        nResults: topK,
+        where: { conversationId: conversationId.toString() },
+      });
 
-  const docs = results.documents?.[0] ?? [];
-  const metas = results.metadatas?.[0] ?? [];
-  const dists = results.distances?.[0] ?? [];
+      const docs = results.documents?.[0] ?? [];
+      const metas = results.metadatas?.[0] ?? [];
+      const dists = results.distances?.[0] ?? [];
+      if (docs.length) {
+        return docs.map((text, i) => ({
+          text,
+          metadata: metas[i],
+          distance: dists[i],
+        }));
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[RAG] Vector retrieval failed; using MongoDB fallback:",
+      err.message
+    );
+  }
 
-  return docs.map((text, i) => ({
-    text,
-    metadata: metas[i],
-    distance: dists[i],
-  }));
+  return retrieveLexically({ query, conversationId, topK });
 };
 
 /**
  * Remove all Chroma vectors belonging to a conversation (used on delete).
  */
 export const deleteConversationVectors = async (conversationId) => {
+  if (!(await isChromaAvailable())) return;
   const collection = await getDocumentsCollection();
-  await collection.delete({
-    where: { conversationId: conversationId.toString() },
-  });
+  await collection.delete({ where: { conversationId: conversationId.toString() } });
 };

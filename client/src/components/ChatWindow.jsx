@@ -94,7 +94,11 @@ export default function ChatWindow({ onOpenSidebar }) {
         kind: "success",
         text: `${data.filename} processed (${data.chunkCount} chunk${
           data.chunkCount === 1 ? "" : "s"
-        }). You can ask about it now.`,
+        }). You can ask about it now.${
+          data.vectorIndexed === false
+            ? " Using built-in text search while the vector service is offline."
+            : ""
+        }`,
       });
     } catch (err) {
       setUpload({
@@ -214,7 +218,7 @@ export default function ChatWindow({ onOpenSidebar }) {
           <div className="mt-16 text-center text-sm text-gray-400">
             <p className="mb-1 text-base">👋</p>
             <p>No messages yet.</p>
-            <p>Ask a question, or attach a PDF/TXT to chat about it.</p>
+            <p>Ask a question, or attach a document/image to chat about it.</p>
           </div>
         ) : (
           messages.map((m) => <MessageBubble key={m._id} message={m} />)
