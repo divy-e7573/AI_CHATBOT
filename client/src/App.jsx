@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Chat from "./pages/Chat";
+import Home from "./pages/Home";
 import { useAuthStore } from "./store/authStore";
 
 // Gate protected routes behind an auth token.
@@ -14,10 +15,11 @@ function ProtectedRoute({ children }) {
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route
-        path="/"
+        path="/chat"
         element={
           <ProtectedRoute>
             <Chat />
