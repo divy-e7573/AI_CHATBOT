@@ -10,6 +10,7 @@ const conversationSchema = new mongoose.Schema(
     title: {
       type: String,
       trim: true,
+      maxlength: 80,
       default: "New conversation",
     },
   },

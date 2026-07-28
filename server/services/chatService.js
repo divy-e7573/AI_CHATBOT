@@ -3,6 +3,7 @@ import { getCohereClient } from "../config/cohere.js";
 // command-r-plus was removed by Cohere on 2025-09-15; use the current flagship.
 // Note: current models require the v2 chat API (client.v2.chatStream).
 const CHAT_MODEL = "command-a-plus-05-2026";
+const MAX_TITLE_LENGTH = 80;
 
 /**
  * Convert stored Message docs (chronological order) into v2 chat messages.
@@ -73,3 +74,60 @@ export async function* streamChat({ message, preamble, chatHistory = [] }) {
     }
   }
 }
+
+const cleanTitle = (value) => {
+  const title = String(value ?? "")
+    .replace(/^(title|conversation title)\s*:\s*/i, "")
+    .replace(/^[\s"'`*_#-]+|[\s"'`*_#.!-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (title.length <= MAX_TITLE_LENGTH) return title;
+  const shortened = title.slice(0, MAX_TITLE_LENGTH + 1);
+  const lastSpace = shortened.lastIndexOf(" ");
+  return shortened.slice(0, lastSpace > 30 ? lastSpace : MAX_TITLE_LENGTH).trim();
+};
+
+/** Create a concise ChatGPT-style label after the first exchange. */
+export const generateConversationTitle = async ({
+  userMessage,
+  assistantMessage,
+}) => {
+  const cohere = getCohereClient();
+  const response = await cohere.v2.chat(
+    {
+      model: CHAT_MODEL,
+      temperature: 0.2,
+      maxTokens: 24,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Create a concise conversation title of 3 to 7 words. Return only the title, with no quotes, markdown, label, or ending punctuation.",
+        },
+        {
+          role: "user",
+          content: `User message: ${safeContent(userMessage).slice(0, 800)}\n\nAssistant response: ${safeContent(assistantMessage).slice(0, 800)}`,
+        },
+      ],
+    },
+    { timeoutInSeconds: 15, maxRetries: 0 }
+  );
+
+  const content = response.message?.content;
+  const rawTitle = Array.isArray(content)
+    ? content.find((part) => part?.type === "text")?.text
+    : content;
+  return cleanTitle(rawTitle);
+};
+
+/** Local fallback used if the title-generation request is unavailable. */
+export const deriveConversationTitle = (message) => {
+  const normalized = String(message ?? "")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "New conversation";
+  return cleanTitle(normalized.split(" ").slice(0, 7).join(" "));
+};

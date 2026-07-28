@@ -42,6 +42,42 @@ export const createConversation = async (req, res, next) => {
 };
 
 /**
+ * PATCH /api/conversations/:id
+ * Rename a conversation owned by the requester. Body: { title }.
+ */
+export const renameConversation = async (req, res, next) => {
+  try {
+    const conversationId = req.params.id;
+    if (!mongoose.isValidObjectId(conversationId)) {
+      return res.status(400).json({ message: "Invalid conversation id." });
+    }
+
+    const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+    if (!title) {
+      return res.status(400).json({ message: "Conversation title is required." });
+    }
+    if (title.length > 80) {
+      return res
+        .status(400)
+        .json({ message: "Conversation title must be 80 characters or fewer." });
+    }
+
+    const conversation = await Conversation.findOneAndUpdate(
+      { _id: conversationId, userId: req.userId },
+      { $set: { title } },
+      { new: true, runValidators: true }
+    );
+    if (!conversation) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+
+    return res.status(200).json({ conversation });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+/**
  * GET /api/conversations/:id/messages
  * Return all messages in a conversation, chronological order.
  */

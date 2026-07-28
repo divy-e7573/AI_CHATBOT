@@ -73,6 +73,27 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  /** Rename a conversation and immediately reflect the server result. */
+  renameConversation: async (id, title) => {
+    const { data } = await api.patch(`/conversations/${id}`, { title });
+    set((state) => ({
+      conversations: state.conversations.map((conversation) =>
+        conversation._id === id ? data.conversation : conversation
+      ),
+    }));
+    return data.conversation;
+  },
+
+  /** Apply a title returned with the completed first-message stream. */
+  updateConversationTitle: (id, title) => {
+    if (!title) return;
+    set((state) => ({
+      conversations: state.conversations.map((conversation) =>
+        conversation._id === id ? { ...conversation, title } : conversation
+      ),
+    }));
+  },
+
   /** Delete a conversation (server cascades messages/documents/vectors). */
   deleteConversation: async (id) => {
     await api.delete(`/conversations/${id}`);

@@ -20,6 +20,9 @@ export default function ChatWindow({ onOpenSidebar }) {
   const addMessage = useChatStore((s) => s.addMessage);
   const appendToMessage = useChatStore((s) => s.appendToMessage);
   const updateMessage = useChatStore((s) => s.updateMessage);
+  const updateConversationTitle = useChatStore(
+    (s) => s.updateConversationTitle
+  );
 
   const current = conversations.find((c) => c._id === currentId);
   const [input, setInput] = useState("");
@@ -149,7 +152,12 @@ export default function ChatWindow({ onOpenSidebar }) {
           }
           appendToMessage(assistantId, chunk);
         },
-        onDone: () => updateMessage(assistantId, { pending: false }),
+        onDone: (payload) => {
+          updateMessage(assistantId, { pending: false });
+          if (payload.conversationTitle) {
+            updateConversationTitle(currentId, payload.conversationTitle);
+          }
+        },
       });
     } catch (err) {
       if (err.name === "AbortError" && timedOut) {

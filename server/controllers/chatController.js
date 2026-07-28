@@ -5,6 +5,8 @@ import Message from "../models/Message.js";
 import { retrieveRelevantChunks } from "../services/ragService.js";
 import {
   buildPreamble,
+  deriveConversationTitle,
+  generateConversationTitle,
   toCohereChatHistory,
   streamChat,
 } from "../services/chatService.js";
@@ -60,6 +62,8 @@ export const sendMessage = async (req, res, next) => {
 
     const chatHistory = toCohereChatHistory(priorMessages.reverse());
     const preamble = buildPreamble(chunks);
+    const shouldGenerateTitle =
+      priorMessages.length === 0 && conversation.title === "New conversation";
 
     // --- Switch to SSE; from here on, errors are sent as SSE events ---
     res.setHeader("Content-Type", "text/event-stream");
@@ -122,16 +126,39 @@ export const sendMessage = async (req, res, next) => {
       });
     }
 
-    // Bump conversation activity time so it sorts to the top of the list.
-    await Conversation.updateOne(
-      { _id: conversationId },
-      { $set: { updatedAt: new Date() } }
-    );
+    let conversationTitle = null;
+    if (shouldGenerateTitle) {
+      let generatedTitle;
+      try {
+        generatedTitle = await generateConversationTitle({
+          userMessage: content,
+          assistantMessage: assistantText,
+        });
+      } catch (titleError) {
+        console.warn("[Chat] AI title generation failed; using fallback:", titleError.message);
+      }
+      generatedTitle = generatedTitle || deriveConversationTitle(content);
+
+      // Only replace the untouched default. A manual rename made while the
+      // answer was streaming always wins.
+      const titleUpdate = await Conversation.updateOne(
+        { _id: conversationId, title: "New conversation" },
+        { $set: { title: generatedTitle, updatedAt: new Date() } }
+      );
+      if (titleUpdate.modifiedCount > 0) conversationTitle = generatedTitle;
+    } else {
+      // Bump conversation activity time so it sorts to the top of the list.
+      await Conversation.updateOne(
+        { _id: conversationId },
+        { $set: { updatedAt: new Date() } }
+      );
+    }
 
     sse(res, {
       type: "done",
       userMessageId: userMessage._id,
       assistantMessageId: assistantMessage?._id ?? null,
+      conversationTitle,
     });
     return res.end();
   } catch (err) {

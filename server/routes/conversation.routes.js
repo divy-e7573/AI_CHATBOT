@@ -5,6 +5,7 @@ import { sendMessage } from "../controllers/chatController.js";
 import {
   listConversations,
   createConversation,
+  renameConversation,
   getMessages,
   deleteConversation,
 } from "../controllers/conversationController.js";
@@ -17,6 +18,7 @@ router.use(authMiddleware);
 // Mounted at /api/conversations in server.js
 router.get("/", listConversations);
 router.post("/", createConversation);
+router.patch("/:id", renameConversation);
 router.get("/:id/messages", getMessages);
 router.post("/:id/messages", sendMessage);
 router.delete("/:id", deleteConversation);
