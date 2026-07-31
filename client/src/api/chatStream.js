@@ -11,9 +11,9 @@ import { useAuthStore } from "../store/authStore";
  *
  * @returns {Promise<void>} resolves when the stream completes ("done").
  */
-export async function streamMessage({
-  conversationId,
-  content,
+async function streamRequest({
+  url,
+  body,
   signal,
   onSources,
   onToken,
@@ -21,19 +21,16 @@ export async function streamMessage({
 }) {
   const token = useAuthStore.getState().token;
 
-  const response = await fetch(
-    `/api/conversations/${conversationId}/messages`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      credentials: "include", // include the httpOnly auth cookie
-      body: JSON.stringify({ content }),
-      signal,
-    }
-  );
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    credentials: "include", // include the httpOnly auth cookie
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal,
+  });
 
   // Errors that happen before streaming starts come back as a JSON body.
   if (!response.ok) {
@@ -104,4 +101,21 @@ export async function streamMessage({
       }
     }
   }
+}
+
+/** Start a streamed assistant response for a newly sent user message. */
+export function streamMessage({ conversationId, content, ...callbacks }) {
+  return streamRequest({
+    url: `/api/conversations/${conversationId}/messages`,
+    body: { content },
+    ...callbacks,
+  });
+}
+
+/** Re-run the assistant response for an existing user message. */
+export function streamRegenerate({ conversationId, messageId, ...callbacks }) {
+  return streamRequest({
+    url: `/api/conversations/${conversationId}/messages/${messageId}/regenerate`,
+    ...callbacks,
+  });
 }

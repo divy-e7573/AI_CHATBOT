@@ -94,6 +94,23 @@ export const useChatStore = create((set, get) => ({
     }));
   },
 
+  /** Edit one user message and remove the now-invalid downstream branch. */
+  editUserMessage: async (conversationId, messageId, content) => {
+    const { data } = await api.patch(
+      `/conversations/${conversationId}/messages/${messageId}`,
+      { content }
+    );
+    const deletedIds = new Set(data.deletedMessageIds ?? []);
+    set((state) => ({
+      messages: state.messages
+        .filter((message) => !deletedIds.has(message._id))
+        .map((message) =>
+          message._id === messageId ? { ...message, ...data.message } : message
+        ),
+    }));
+    return data.message;
+  },
+
   /** Delete a conversation (server cascades messages/documents/vectors). */
   deleteConversation: async (id) => {
     await api.delete(`/conversations/${id}`);
@@ -148,4 +165,14 @@ export const useChatStore = create((set, get) => ({
         m._id === id ? { ...m, ...patch } : m
       ),
     })),
+
+  /** Swap an optimistic local id for the MongoDB id returned by SSE done. */
+  replaceMessageId: (id, persistedId) => {
+    if (!persistedId) return;
+    set((state) => ({
+      messages: state.messages.map((message) =>
+        message._id === id ? { ...message, _id: persistedId } : message
+      ),
+    }));
+  },
 }));

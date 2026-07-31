@@ -1,7 +1,11 @@
 import { Router } from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
-import { sendMessage } from "../controllers/chatController.js";
+import {
+  editMessage,
+  regenerateMessage,
+  sendMessage,
+} from "../controllers/chatController.js";
 import {
   listConversations,
   createConversation,
@@ -21,6 +25,8 @@ router.post("/", createConversation);
 router.patch("/:id", renameConversation);
 router.get("/:id/messages", getMessages);
 router.post("/:id/messages", sendMessage);
+router.patch("/:id/messages/:messageId", editMessage);
+router.post("/:id/messages/:messageId/regenerate", regenerateMessage);
 router.delete("/:id", deleteConversation);
 
 export default router;

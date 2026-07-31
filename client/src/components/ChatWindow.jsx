@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, Square } from "lucide-react";
 
 import api from "../api/axios";
-import { streamMessage } from "../api/chatStream";
+import { streamMessage, streamRegenerate } from "../api/chatStream";
 import { useSpeechToText } from "../hooks/useSpeechToText";
 import { useChatStore } from "../store/chatStore";
 import FileUploadButton from "./FileUploadButton";
@@ -20,6 +20,8 @@ export default function ChatWindow({ onOpenSidebar }) {
   const addMessage = useChatStore((s) => s.addMessage);
   const appendToMessage = useChatStore((s) => s.appendToMessage);
   const updateMessage = useChatStore((s) => s.updateMessage);
+  const editUserMessage = useChatStore((s) => s.editUserMessage);
+  const replaceMessageId = useChatStore((s) => s.replaceMessageId);
   const updateConversationTitle = useChatStore(
     (s) => s.updateConversationTitle
   );
@@ -116,30 +118,14 @@ export default function ChatWindow({ onOpenSidebar }) {
     }
   };
 
-  const handleSend = async (e) => {
-    e?.preventDefault();
-    const text = input.trim();
-    if (!text || isStreaming || !currentId) return;
-
-    if (isListening) stopSpeech();
-    setInput("");
+  const startStreaming = async ({ request, assistantId, userId }) => {
     setIsStreaming(true);
-
-    addMessage({ role: "user", content: text });
-    // Placeholder assistant bubble; `pending` drives the loading indicator.
-    const assistantId = addMessage({
-      role: "assistant",
-      content: "",
-      pending: true,
-    });
-
     const controller = new AbortController();
     abortRef.current = controller;
     streamingAssistantIdRef.current = assistantId;
     stopRequestedRef.current = false;
     setIsStopRequested(false);
 
-    // Watchdog: abort if the AI never starts answering.
     let timedOut = false;
     let watchdog = setTimeout(() => {
       timedOut = true;
@@ -147,9 +133,7 @@ export default function ChatWindow({ onOpenSidebar }) {
     }, FIRST_TOKEN_TIMEOUT_MS);
 
     try {
-      await streamMessage({
-        conversationId: currentId,
-        content: text,
+      await request({
         signal: controller.signal,
         onToken: (chunk) => {
           if (watchdog) {
@@ -159,7 +143,13 @@ export default function ChatWindow({ onOpenSidebar }) {
           appendToMessage(assistantId, chunk);
         },
         onDone: (payload) => {
-          updateMessage(assistantId, { pending: false });
+          updateMessage(assistantId, {
+            pending: false,
+            regenerating: false,
+            ...(payload.stopped ? { stopped: true } : {}),
+          });
+          if (userId) replaceMessageId(userId, payload.userMessageId);
+          replaceMessageId(assistantId, payload.assistantMessageId);
           if (payload.conversationTitle) {
             updateConversationTitle(currentId, payload.conversationTitle);
           }
@@ -169,18 +159,20 @@ export default function ChatWindow({ onOpenSidebar }) {
       if (err.name === "AbortError" && timedOut && !stopRequestedRef.current) {
         updateMessage(assistantId, {
           pending: false,
+          regenerating: false,
           error: true,
           content: "⚠️ The AI took too long to respond. Please try again.",
         });
       } else if (err.name === "AbortError") {
-        // User navigated away / cancelled — just stop the indicator.
         updateMessage(assistantId, {
           pending: false,
+          regenerating: false,
           ...(stopRequestedRef.current ? { stopped: true } : {}),
         });
       } else {
         updateMessage(assistantId, {
           pending: false,
+          regenerating: false,
           error: true,
           content: `⚠️ ${err.message || "Failed to get a response."}`,
         });
@@ -193,6 +185,61 @@ export default function ChatWindow({ onOpenSidebar }) {
       stopRequestedRef.current = false;
       setIsStopRequested(false);
     }
+  };
+
+  const handleSend = (e) => {
+    e?.preventDefault();
+    const text = input.trim();
+    if (!text || isStreaming || !currentId) return;
+
+    if (isListening) stopSpeech();
+    setInput("");
+    const userId = addMessage({ role: "user", content: text });
+    const assistantId = addMessage({
+      role: "assistant",
+      content: "",
+      pending: true,
+    });
+    startStreaming({
+      assistantId,
+      userId,
+      request: (callbacks) =>
+        streamMessage({ conversationId: currentId, content: text, ...callbacks }),
+    });
+  };
+
+  const handleRegenerate = (messageId, existingAssistantId = null) => {
+    if (!messageId || isStreaming || !currentId) return;
+    const assistantId = existingAssistantId || addMessage({
+      role: "assistant",
+      content: "",
+      pending: true,
+      regenerating: true,
+    });
+    if (existingAssistantId) {
+      updateMessage(existingAssistantId, {
+        content: "",
+        pending: true,
+        regenerating: true,
+        stopped: false,
+        error: false,
+      });
+    }
+    startStreaming({
+      assistantId,
+      request: (callbacks) =>
+        streamRegenerate({
+          conversationId: currentId,
+          messageId,
+          ...callbacks,
+        }),
+    });
+  };
+
+  const handleEditUserMessage = async (messageId, content) => {
+    if (isStreaming || !currentId) return;
+    await editUserMessage(currentId, messageId, content);
+    handleRegenerate(messageId);
   };
 
   const handleStopGenerating = () => {
@@ -223,6 +270,19 @@ export default function ChatWindow({ onOpenSidebar }) {
     setVoiceError(null);
     clearVoiceError();
     toggleSpeech(input);
+  };
+
+  const lastAssistantIndex = messages.reduce(
+    (lastIndex, message, index) =>
+      message.role === "assistant" ? index : lastIndex,
+    -1
+  );
+
+  const previousUserId = (assistantIndex) => {
+    for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "user") return messages[index]._id;
+    }
+    return null;
   };
 
   return (
@@ -256,7 +316,23 @@ export default function ChatWindow({ onOpenSidebar }) {
             <p>Ask a question, or attach a document/image to chat about it.</p>
           </div>
         ) : (
-          messages.map((m) => <MessageBubble key={m._id} message={m} />)
+          messages.map((message, index) => (
+            <MessageBubble
+              key={message._id}
+              message={message}
+              actionsDisabled={isStreaming || loadingMessages}
+              onEdit={
+                message.role === "user" && !isStreaming
+                  ? handleEditUserMessage
+                  : undefined
+              }
+              onRegenerate={
+                message.role === "assistant" && index === lastAssistantIndex
+                  ? () => handleRegenerate(previousUserId(index), message._id)
+                  : undefined
+              }
+            />
+          ))
         )}
         <div ref={endRef} />
       </div>
