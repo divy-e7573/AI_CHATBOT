@@ -104,18 +104,19 @@ async function streamRequest({
 }
 
 /** Start a streamed assistant response for a newly sent user message. */
-export function streamMessage({ conversationId, content, ...callbacks }) {
+export function streamMessage({ conversationId, content, provider, ...callbacks }) {
   return streamRequest({
     url: `/api/conversations/${conversationId}/messages`,
-    body: { content },
+    body: { content, provider },
     ...callbacks,
   });
 }
 
 /** Re-run the assistant response for an existing user message. */
-export function streamRegenerate({ conversationId, messageId, ...callbacks }) {
+export function streamRegenerate({ conversationId, messageId, provider, ...callbacks }) {
   return streamRequest({
     url: `/api/conversations/${conversationId}/messages/${messageId}/regenerate`,
+    body: { provider },
     ...callbacks,
   });
 }

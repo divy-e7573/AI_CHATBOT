@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 import api from "../api/axios";
 
@@ -6,10 +7,13 @@ import api from "../api/axios";
 let idCounter = 0;
 const nextId = () => `local-${++idCounter}`;
 
-export const useChatStore = create((set, get) => ({
+export const useChatStore = create(persist((set, get) => ({
   conversations: [],
   currentConversationId: null,
   messages: [],
+  // Provider selection belongs to a conversation, so switching chats does
+  // not unexpectedly change the model selected for another conversation.
+  providersByConversation: {},
   loadingConversations: false,
   loadingMessages: false,
   listError: null, // sidebar-level error (load/create failures)
@@ -94,6 +98,16 @@ export const useChatStore = create((set, get) => ({
     }));
   },
 
+  setConversationProvider: (conversationId, provider) => {
+    if (!conversationId) return;
+    set((state) => ({
+      providersByConversation: {
+        ...state.providersByConversation,
+        [conversationId]: provider,
+      },
+    }));
+  },
+
   /** Edit one user message and remove the now-invalid downstream branch. */
   editUserMessage: async (conversationId, messageId, content) => {
     const { data } = await api.patch(
@@ -122,7 +136,10 @@ export const useChatStore = create((set, get) => ({
         currentConversationId: wasCurrent
           ? conversations[0]?._id ?? null
           : state.currentConversationId,
-        messages: wasCurrent ? [] : state.messages,
+      messages: wasCurrent ? [] : state.messages,
+      providersByConversation: Object.fromEntries(
+        Object.entries(state.providersByConversation).filter(([key]) => key !== id)
+      ),
       };
     });
     // Load messages for the newly selected conversation, if any.
@@ -136,6 +153,7 @@ export const useChatStore = create((set, get) => ({
       conversations: [],
       currentConversationId: null,
       messages: [],
+      providersByConversation: {},
       loadingConversations: false,
       loadingMessages: false,
       listError: null,
@@ -175,4 +193,9 @@ export const useChatStore = create((set, get) => ({
       ),
     }));
   },
+}), {
+  name: "ai-chatbot-provider-preferences",
+  // Keep only model choices across refreshes; chat data is always fetched
+  // fresh from the API and is cleared on logout.
+  partialize: (state) => ({ providersByConversation: state.providersByConversation }),
 }));

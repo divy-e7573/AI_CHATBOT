@@ -8,8 +8,11 @@ import {
   deriveConversationTitle,
   generateConversationTitle,
   toCohereChatHistory,
-  streamChat,
 } from "../services/chatService.js";
+import {
+  ensureProviderConfigured,
+  getProvider,
+} from "../services/aiProviders/providerFactory.js";
 
 const TOP_K = 4;
 const HISTORY_LIMIT = 6;
@@ -59,6 +62,7 @@ const streamAssistantResponse = async ({
   conversation,
   content,
   priorMessages,
+  provider,
   existingUserMessage = null,
   shouldGenerateTitle = false,
 }) => {
@@ -101,10 +105,9 @@ const streamAssistantResponse = async ({
 
   let assistantText = "";
   try {
-    for await (const text of streamChat({
-      message: content,
-      preamble,
-      chatHistory,
+    for await (const text of provider.adapter.streamChat({
+      messages: [...chatHistory, { role: "user", content }],
+      context: preamble,
       signal: generationController.signal,
     })) {
       if (clientClosed) break;
@@ -121,14 +124,24 @@ const streamAssistantResponse = async ({
         });
         return res.end();
       }
-      throw streamError;
+      sse(res, { type: "error", message: message || "Generation failed. Please try again." });
+      return res.end();
     }
   }
 
   const stopped = clientClosed || generationController.signal.aborted;
   const userMessage =
     existingUserMessage ||
-    (await Message.create({ conversationId, role: "user", content }));
+    (await Message.create({
+      conversationId,
+      role: "user",
+      content,
+      provider: provider.name,
+    }));
+
+  if (existingUserMessage && existingUserMessage.provider !== provider.name) {
+    await Message.updateOne({ _id: existingUserMessage._id }, { $set: { provider: provider.name } });
+  }
 
   let assistantMessage = null;
   if (assistantText.trim()) {
@@ -137,6 +150,7 @@ const streamAssistantResponse = async ({
       role: "assistant",
       content: assistantText,
       stopped,
+      provider: provider.name,
     });
   }
 
@@ -172,6 +186,7 @@ const streamAssistantResponse = async ({
     type: "done",
     userMessageId: userMessage._id,
     assistantMessageId: assistantMessage?._id ?? null,
+    provider: provider.name,
     conversationTitle,
     stopped,
   });
@@ -193,6 +208,8 @@ export const sendMessage = async (req, res, next) => {
   try {
     const conversationId = req.params.id;
     const content = (req.body?.content ?? req.body?.message ?? "").trim();
+    const provider = getProvider(req.body?.provider);
+    ensureProviderConfigured(provider);
     if (!mongoose.isValidObjectId(conversationId)) {
       return invalidId(res, "Invalid conversation id.");
     }
@@ -214,6 +231,7 @@ export const sendMessage = async (req, res, next) => {
       conversation,
       content,
       priorMessages,
+      provider,
       shouldGenerateTitle:
         priorMessages.length === 0 && conversation.title === "New conversation",
     });
@@ -272,6 +290,8 @@ export const regenerateMessage = async (req, res, next) => {
       return res.status(404).json({ message: "User message not found." });
     }
 
+    const provider = getProvider(req.body?.provider);
+    ensureProviderConfigured(provider);
     // The previous answer and every downstream turn were based on the old
     // branch, so regeneration starts a clean continuation from this message.
     await deleteFollowingMessages(position.following);
@@ -281,6 +301,7 @@ export const regenerateMessage = async (req, res, next) => {
       conversation,
       content: position.message.content,
       priorMessages: position.previous,
+      provider,
       existingUserMessage: position.message,
     });
   } catch (error) {

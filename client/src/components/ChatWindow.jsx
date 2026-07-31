@@ -25,8 +25,11 @@ export default function ChatWindow({ onOpenSidebar }) {
   const updateConversationTitle = useChatStore(
     (s) => s.updateConversationTitle
   );
+  const providersByConversation = useChatStore((s) => s.providersByConversation);
+  const setConversationProvider = useChatStore((s) => s.setConversationProvider);
 
   const current = conversations.find((c) => c._id === currentId);
+  const activeProvider = currentId ? providersByConversation[currentId] || "cohere" : "cohere";
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isStopRequested, setIsStopRequested] = useState(false);
@@ -146,6 +149,7 @@ export default function ChatWindow({ onOpenSidebar }) {
           updateMessage(assistantId, {
             pending: false,
             regenerating: false,
+            provider: payload.provider || activeProvider,
             ...(payload.stopped ? { stopped: true } : {}),
           });
           if (userId) replaceMessageId(userId, payload.userMessageId);
@@ -194,17 +198,23 @@ export default function ChatWindow({ onOpenSidebar }) {
 
     if (isListening) stopSpeech();
     setInput("");
-    const userId = addMessage({ role: "user", content: text });
+    const userId = addMessage({ role: "user", content: text, provider: activeProvider });
     const assistantId = addMessage({
       role: "assistant",
       content: "",
       pending: true,
+      provider: activeProvider,
     });
     startStreaming({
       assistantId,
       userId,
       request: (callbacks) =>
-        streamMessage({ conversationId: currentId, content: text, ...callbacks }),
+        streamMessage({
+          conversationId: currentId,
+          content: text,
+          provider: activeProvider,
+          ...callbacks,
+        }),
     });
   };
 
@@ -215,6 +225,7 @@ export default function ChatWindow({ onOpenSidebar }) {
       content: "",
       pending: true,
       regenerating: true,
+      provider: activeProvider,
     });
     if (existingAssistantId) {
       updateMessage(existingAssistantId, {
@@ -223,6 +234,7 @@ export default function ChatWindow({ onOpenSidebar }) {
         regenerating: true,
         stopped: false,
         error: false,
+        provider: activeProvider,
       });
     }
     startStreaming({
@@ -231,6 +243,7 @@ export default function ChatWindow({ onOpenSidebar }) {
         streamRegenerate({
           conversationId: currentId,
           messageId,
+          provider: activeProvider,
           ...callbacks,
         }),
     });
@@ -298,6 +311,21 @@ export default function ChatWindow({ onOpenSidebar }) {
         <h1 className="truncate text-base font-semibold text-gray-800">
           {current?.title ?? "Chat"}
         </h1>
+        <label className="ml-auto flex shrink-0 items-center gap-2 text-xs font-medium text-gray-500">
+          <span className="hidden sm:inline">Model</span>
+          <select
+            value={activeProvider}
+            onChange={(event) => setConversationProvider(currentId, event.target.value)}
+            disabled={!currentId || isStreaming}
+            aria-label="Select AI model"
+            className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-medium text-gray-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="claude">Claude</option>
+            <option value="openai">GPT</option>
+            <option value="gemini">Gemini</option>
+            <option value="cohere">Cohere</option>
+          </select>
+        </label>
       </header>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">

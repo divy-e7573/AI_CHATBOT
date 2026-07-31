@@ -35,6 +35,14 @@ const messageSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // The model used for this turn. Existing records default to Cohere so
+    // historical conversations remain correctly labelled.
+    provider: {
+      type: String,
+      enum: ["cohere", "claude", "openai", "gemini"],
+      default: "cohere",
+      required: true,
+    },
   },
   {
     // Adds createdAt and updatedAt automatically.

@@ -51,4 +51,11 @@ See [.env.example](.env.example):
 | `MONGO_URI`  | MongoDB connection string                    |
 | `JWT_SECRET` | Secret for signing JWT auth tokens           |
 | `COHERE_API_KEY` | Cohere key for chat and optional vector embeddings |
+| `ANTHROPIC_API_KEY` | Enables the Claude selector option       |
+| `OPENAI_API_KEY` | Enables the GPT selector option             |
+| `GEMINI_API_KEY` | Enables the Gemini selector option          |
 | `CHROMA_URL` | Optional Chroma URL (MongoDB fallback is automatic) |
+
+Provider API keys belong in the server environment only. A provider without a
+configured key is rejected with a clear message, and its key is never sent to
+the browser.

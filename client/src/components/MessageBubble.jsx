@@ -3,6 +3,13 @@ import { Check, Loader2, Pencil, RotateCcw, X } from "lucide-react";
 
 import MarkdownRenderer from "./MarkdownRenderer";
 
+const providerLabels = {
+  claude: "Claude",
+  openai: "GPT",
+  gemini: "Gemini",
+  cohere: "Cohere",
+};
+
 function TypingIndicator({ regenerating = false }) {
   return (
     <span
@@ -133,6 +140,9 @@ export default function MessageBubble({
               {message.stopped && message.content && (
                 <p className="mt-2 text-xs font-medium text-gray-400">Generation stopped</p>
               )}
+              <span className="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                {providerLabels[message.provider || "cohere"] || message.provider}
+              </span>
             </>
           )}
         </div>
