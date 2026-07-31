@@ -16,6 +16,7 @@ const HISTORY_LIMIT = 6; // prior messages to include as chat history
 
 // Write a single SSE event.
 const sse = (res, payload) => {
+  if (res.writableEnded || res.destroyed) return;
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 };
 
@@ -82,33 +83,58 @@ export const sendMessage = async (req, res, next) => {
       })),
     });
 
+    const generationController = new AbortController();
     let clientClosed = false;
-    req.on("close", () => {
+    const handleClientDisconnect = () => {
+      if (clientClosed || res.writableEnded) return;
       clientClosed = true;
+      generationController.abort();
+    };
+
+    // `res.close` is the reliable signal for a client that aborts an SSE
+    // response. Keep the request listeners as well for clients that close
+    // while the request is still being received.
+    req.on("aborted", handleClientDisconnect);
+    req.on("close", () => {
+      if (req.aborted) handleClientDisconnect();
     });
+    res.on("close", handleClientDisconnect);
 
     let assistantText = "";
     try {
-      for await (const text of streamChat({ message: content, preamble, chatHistory })) {
+      for await (const text of streamChat({
+        message: content,
+        preamble,
+        chatHistory,
+        signal: generationController.signal,
+      })) {
         if (clientClosed) break;
         assistantText += text;
         sse(res, { type: "token", text });
       }
     } catch (streamErr) {
-      // Cohere may reject the request if it detects non-text content
-      // (e.g. "does not support image input").  Surface a clear message
-      // instead of a cryptic upstream error.
-      const msg = streamErr?.message || "";
-      if (/image/i.test(msg) && /support/i.test(msg)) {
-        sse(res, {
-          type: "error",
-          message:
-            "This model does not support image input. Please send only text messages.",
-        });
-        return res.end();
+      // Aborting the provider request is expected when the browser presses
+      // Stop generating or disconnects. Persist the partial answer below.
+      if (clientClosed || generationController.signal.aborted) {
+        // continue to persistence
+      } else {
+        // Cohere may reject the request if it detects non-text content
+        // (e.g. "does not support image input"). Surface a clear message
+        // instead of a cryptic upstream error.
+        const msg = streamErr?.message || "";
+        if (/image/i.test(msg) && /support/i.test(msg)) {
+          sse(res, {
+            type: "error",
+            message:
+              "This model does not support image input. Please send only text messages.",
+          });
+          return res.end();
+        }
+        throw streamErr; // re-throw for the outer catch
       }
-      throw streamErr; // re-throw for the outer catch
     }
+
+    const stopped = clientClosed || generationController.signal.aborted;
 
     // --- Persist both messages after streaming completes ---
     const userMessage = await Message.create({
@@ -123,11 +149,12 @@ export const sendMessage = async (req, res, next) => {
         conversationId,
         role: "assistant",
         content: assistantText,
+        stopped,
       });
     }
 
     let conversationTitle = null;
-    if (shouldGenerateTitle) {
+    if (shouldGenerateTitle && !stopped) {
       let generatedTitle;
       try {
         generatedTitle = await generateConversationTitle({
@@ -154,17 +181,22 @@ export const sendMessage = async (req, res, next) => {
       );
     }
 
+    // The browser has already gone away, so never attempt another SSE write.
+    if (clientClosed || res.writableEnded) return undefined;
+
     sse(res, {
       type: "done",
       userMessageId: userMessage._id,
       assistantMessageId: assistantMessage?._id ?? null,
       conversationTitle,
+      stopped,
     });
     return res.end();
   } catch (err) {
     // If streaming already started we can't set a status code — emit an SSE error.
     if (res.headersSent) {
       console.error(`[POST /api/conversations/:id/messages] stream error:`, err);
+      if (res.writableEnded || res.destroyed) return undefined;
       const msg = err?.message || "";
       if (/image/i.test(msg) && /support/i.test(msg)) {
         sse(res, {

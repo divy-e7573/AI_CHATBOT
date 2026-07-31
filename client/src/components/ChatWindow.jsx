@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic } from "lucide-react";
+import { Mic, Square } from "lucide-react";
 
 import api from "../api/axios";
 import { streamMessage } from "../api/chatStream";
@@ -27,11 +27,14 @@ export default function ChatWindow({ onOpenSidebar }) {
   const current = conversations.find((c) => c._id === currentId);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isStopRequested, setIsStopRequested] = useState(false);
   const [upload, setUpload] = useState(null); // { kind: "uploading"|"success"|"error", text }
   const [voiceError, setVoiceError] = useState(null);
 
   const endRef = useRef(null);
   const abortRef = useRef(null);
+  const streamingAssistantIdRef = useRef(null);
+  const stopRequestedRef = useRef(false);
 
   const handleTranscriptUpdate = useCallback((text) => {
     setInput(text);
@@ -132,6 +135,9 @@ export default function ChatWindow({ onOpenSidebar }) {
 
     const controller = new AbortController();
     abortRef.current = controller;
+    streamingAssistantIdRef.current = assistantId;
+    stopRequestedRef.current = false;
+    setIsStopRequested(false);
 
     // Watchdog: abort if the AI never starts answering.
     let timedOut = false;
@@ -160,7 +166,7 @@ export default function ChatWindow({ onOpenSidebar }) {
         },
       });
     } catch (err) {
-      if (err.name === "AbortError" && timedOut) {
+      if (err.name === "AbortError" && timedOut && !stopRequestedRef.current) {
         updateMessage(assistantId, {
           pending: false,
           error: true,
@@ -168,7 +174,10 @@ export default function ChatWindow({ onOpenSidebar }) {
         });
       } else if (err.name === "AbortError") {
         // User navigated away / cancelled — just stop the indicator.
-        updateMessage(assistantId, { pending: false });
+        updateMessage(assistantId, {
+          pending: false,
+          ...(stopRequestedRef.current ? { stopped: true } : {}),
+        });
       } else {
         updateMessage(assistantId, {
           pending: false,
@@ -180,7 +189,25 @@ export default function ChatWindow({ onOpenSidebar }) {
       if (watchdog) clearTimeout(watchdog);
       setIsStreaming(false);
       abortRef.current = null;
+      streamingAssistantIdRef.current = null;
+      stopRequestedRef.current = false;
+      setIsStopRequested(false);
     }
+  };
+
+  const handleStopGenerating = () => {
+    const controller = abortRef.current;
+    if (!controller || stopRequestedRef.current) return;
+
+    stopRequestedRef.current = true;
+    setIsStopRequested(true);
+    if (streamingAssistantIdRef.current) {
+      updateMessage(streamingAssistantIdRef.current, {
+        pending: false,
+        stopped: true,
+      });
+    }
+    controller.abort();
   };
 
   const handleKeyDown = (e) => {
@@ -326,13 +353,25 @@ export default function ChatWindow({ onOpenSidebar }) {
               </span>
             )}
           </div>
-          <button
-            type="submit"
-            disabled={!currentId || isStreaming || !input.trim()}
-            className="h-10 shrink-0 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isStreaming ? "…" : "Send"}
-          </button>
+          {isStreaming ? (
+            <button
+              type="button"
+              onClick={handleStopGenerating}
+              disabled={isStopRequested}
+              className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-slate-800 px-4 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-wait disabled:opacity-60"
+            >
+              <Square className="h-3 w-3 fill-current" />
+              {isStopRequested ? "Stopping…" : "Stop generating"}
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!currentId || !input.trim()}
+              className="h-10 shrink-0 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Send
+            </button>
+          )}
         </div>
       </form>
     </div>

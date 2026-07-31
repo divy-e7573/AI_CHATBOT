@@ -38,7 +38,7 @@ export const buildPreamble = (chunks = []) => {
   const base =
     "You are a helpful AI assistant for a document-aware chat application. " +
     "Use the retrieved context below to answer the user's question when it is relevant. " +
-    "If the context does not contain the answer, say so briefly, then answer from general knowledge. " +
+    "Answer directly and naturally; never preface an answer by saying whether the retrieved context contains the answer. " +
     "Cite the context by its bracket number (e.g. [1]) when you use it.";
 
   if (!chunks.length) return base;
@@ -51,7 +51,12 @@ export const buildPreamble = (chunks = []) => {
  * Start a streaming Cohere v2 chat. Yields plain text deltas so callers don't
  * depend on Cohere's event shapes.
  */
-export async function* streamChat({ message, preamble, chatHistory = [] }) {
+export async function* streamChat({
+  message,
+  preamble,
+  chatHistory = [],
+  signal,
+}) {
   const cohere = getCohereClient();
 
   const stream = await cohere.v2.chatStream(
@@ -64,7 +69,7 @@ export async function* streamChat({ message, preamble, chatHistory = [] }) {
       ],
     },
     // Fail fast instead of hanging if the AI API stalls.
-    { timeoutInSeconds: 90, maxRetries: 1 }
+    { timeoutInSeconds: 90, maxRetries: 1, abortSignal: signal }
   );
 
   for await (const event of stream) {

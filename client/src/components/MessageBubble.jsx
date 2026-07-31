@@ -32,7 +32,18 @@ export default function MessageBubble({ message }) {
         ) : showTyping ? (
           <TypingIndicator />
         ) : (
-          <MarkdownRenderer content={message.content} />
+          <>
+            {message.content ? (
+              <MarkdownRenderer content={message.content} />
+            ) : message.stopped ? (
+              <p className="text-sm text-gray-500">Generation stopped.</p>
+            ) : null}
+            {message.stopped && message.content && (
+              <p className="mt-2 text-xs font-medium text-gray-400">
+                Generation stopped
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>

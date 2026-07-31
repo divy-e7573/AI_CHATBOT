@@ -17,7 +17,7 @@ export function Footer({ onGetStarted }) {
           variant="dark"
           size="lg"
           onClick={onGetStarted}
-          className="mt-7 bg-white text-blue-700 hover:bg-blue-50"
+          className="mt-7 text-black-700 hover:bg-black-600"
         >
           Get started free <ArrowRight className="h-4 w-4" />
         </Button>

@@ -29,6 +29,12 @@ const messageSchema = new mongoose.Schema(
       type: [attachmentSchema],
       default: [],
     },
+    // True when the client stopped an in-progress assistant response. The
+    // content still contains every token produced before the interruption.
+    stopped: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     // Adds createdAt and updatedAt automatically.
